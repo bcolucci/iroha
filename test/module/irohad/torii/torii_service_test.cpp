@@ -29,6 +29,7 @@ limitations under the License.
 #include "torii/command_client.hpp"
 #include "torii/command_service.hpp"
 #include "torii/processor/transaction_processor_impl.hpp"
+#include "torii/status_bus_impl.hpp"
 
 constexpr size_t TimesToriiBlocking = 5;
 
@@ -105,8 +106,10 @@ class ToriiServiceTest : public testing::Test {
     EXPECT_CALL(*mst, onExpiredTransactionsImpl())
         .WillRepeatedly(Return(mst_expired_notifier.get_observable()));
 
+    auto status_bus = std::make_shared<iroha::torii::StatusBusImpl>();
     auto tx_processor =
-        std::make_shared<iroha::torii::TransactionProcessorImpl>(pcsMock, mst);
+        std::make_shared<iroha::torii::TransactionProcessorImpl>(
+            pcsMock, mst, status_bus);
 
     EXPECT_CALL(*block_query, getTxByHashSync(_))
         .WillRepeatedly(Return(boost::none));
@@ -114,8 +117,11 @@ class ToriiServiceTest : public testing::Test {
 
     //----------- Server run ----------------
     runner
-        ->append(std::make_unique<torii::CommandService>(
-            tx_processor, storage, initial_timeout, nonfinal_timeout))
+        ->append(std::make_unique<torii::CommandService>(tx_processor,
+                                                         storage,
+                                                         status_bus,
+                                                         initial_timeout,
+                                                         nonfinal_timeout))
         .run()
         .match(
             [this](iroha::expected::Value<int> port) {
@@ -576,7 +582,8 @@ TEST_F(ToriiServiceTest, FailedListOfTxs) {
         tx_request.set_tx_hash(shared_model::crypto::toBinaryString(hash));
         iroha::protocol::ToriiResponse toriiResponse;
         client.Status(tx_request, toriiResponse);
-        auto error_beginning = toriiResponse.error_message().substr(0, toriiResponse.error_message().find_first_of('.'));
+        auto error_beginning = toriiResponse.error_message().substr(
+            0, toriiResponse.error_message().find_first_of('.'));
 
         ASSERT_EQ(toriiResponse.tx_status(),
                   iroha::protocol::TxStatus::STATELESS_VALIDATION_FAILED);
